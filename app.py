@@ -23,6 +23,13 @@ loaded_models = {
     }
 }
 
+# Define the directory where the SMA JSON file is located
+SMAS_DIR = os.path.join(os.path.dirname(__file__), 'smas')
+
+# Load SMA data from JSON file
+with open(os.path.join(SMAS_DIR, 'sma_data.json'), 'r') as f:
+    sma_data = json.load(f)
+
 # Function to load and compile models
 def load_and_compile_model(architecture, weights):
     model = model_from_json(json.dumps(architecture))  # Convert dict to JSON string
@@ -34,25 +41,29 @@ def load_and_compile_model(architecture, weights):
 for zone, model_info in loaded_models.items():
     loaded_models[zone]['model'] = load_and_compile_model(model_info['architecture'], model_info['weights'])
 
-# Print the input shape expected by the model
-for zone, model_info in loaded_models.items():
-    print(f"Input shape expected by model '{zone}': {loaded_models[zone]['model'].input_shape}")
-
 # Function to make predictions
-def predict_energy_consumption(zone, Temp, Hum, Wind, hour, dayofweek, quarter, month, year, dayofyear):
+def predict_energy_consumption(zone, Temp, Hum, Wind, hour, dayofweek, quarter, month, dayofyear):
     # Make prediction using the corresponding model for the selected zone
     model = loaded_models[zone]['model']
     
-    # Include SMA columns for the selected zone
-    input_data = [Temp, Hum, Wind, hour, dayofweek, quarter, month, year, dayofyear]
-    input_data += [0] * 3  # Placeholder for SMA columns
+    # Include original input features
+    input_data = [Temp, Hum, Wind, hour, dayofweek, quarter, month, dayofyear]
     
+    # Include SMA features for the selected zone
+    sma_cols = sma_data.get(zone, {})
+    sma_features = [sma_cols.get(f'SMA{window_size}_{zone}', 0) for window_size in [10, 15, 30]]
+    
+    # Combine original input features with SMA features
+    input_data += sma_features
+    
+    # Convert input data to numpy array and reshape it
     input_data_as_numpy_array = np.asarray(input_data)
     input_data_reshaped = input_data_as_numpy_array.reshape(1, -1)
     
     # Print the shape of the input data before prediction
     print(f"Shape of input data: {input_data_reshaped.shape}")
     
+    # Make prediction
     prediction = model.predict(input_data_reshaped)
     return prediction[0]
 
@@ -70,12 +81,11 @@ hour = st.number_input('Hour', value=12, min_value=0, max_value=23, step=1)
 dayofweek = st.number_input('Day of Week', value=3, min_value=0, max_value=6, step=1)
 quarter = st.number_input('Quarter', value=1, min_value=1, max_value=4, step=1)
 month = st.number_input('Month', value=6, min_value=1, max_value=12, step=1)
-year = st.number_input('Year', value=2022, min_value=1900, max_value=2100, step=1)
 dayofyear = st.number_input('Day of Year', value=175, min_value=1, max_value=366, step=1)
 
 # Button to trigger prediction
 if st.button('Predict'):
-    prediction = predict_energy_consumption(zone, Temp, Hum, Wind, hour, dayofweek, quarter, month, year, dayofyear)
+    prediction = predict_energy_consumption(zone, Temp, Hum, Wind, hour, dayofweek, quarter, month, dayofyear)
     # Convert prediction to a scalar value before formatting
     scalar_prediction = prediction.item()
     st.success(f'Predicted Energy Consumption for {zone}: {scalar_prediction:.2f} KW')
